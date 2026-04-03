@@ -38,7 +38,9 @@ async function parseFile(filePath: string, mimeType: string): Promise<string> {
   }
   if (mimeType === 'application/pdf') {
     const buffer = await fs.readFile(filePath);
-    const pdfParse = (await import('pdf-parse')).default;
+    // Import from lib directly to avoid pdf-parse v1 auto-loading test file on require()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>;
     const result = await pdfParse(buffer);
     return result.text;
   }
