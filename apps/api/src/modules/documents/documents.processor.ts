@@ -38,10 +38,8 @@ async function parseFile(filePath: string, mimeType: string): Promise<string> {
   }
   if (mimeType === 'application/pdf') {
     const buffer = await fs.readFile(filePath);
-    // pdf-parse v2.x exports { PDFParse } — not a default function
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { PDFParse } = await import('pdf-parse') as any;
-    const result = await PDFParse(buffer);
+    const pdfParse = (await import('pdf-parse')).default;
+    const result = await pdfParse(buffer);
     return result.text;
   }
   if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
