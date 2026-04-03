@@ -1,0 +1,16 @@
+{
+  "name": "chatbot-platform",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "db:migrate": "pnpm --filter @chatbot/database migrate:dev",
+    "db:seed": "pnpm --filter @chatbot/database seed",
+    "db:studio": "pnpm --filter @chatbot/database studio",
+    "db:reset": "pnpm --filter @chatbot/database migrate:reset"
+  }
+}
