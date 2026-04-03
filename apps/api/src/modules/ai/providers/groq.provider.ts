@@ -11,7 +11,7 @@ export class GroqProvider implements AiProvider {
   private readonly logger = new Logger(GroqProvider.name);
 
   constructor(private readonly config: ConfigService) {
-    this.client = new Groq({ apiKey: config.get<string>('GROQ_API_KEY') });
+    this.client = new Groq({ apiKey: config.get<string>('GROQ_API_KEY') ?? 'missing-key' });
     this.model = config.get<string>('GROQ_MODEL') ?? 'llama-3.1-8b-instant';
   }
 
