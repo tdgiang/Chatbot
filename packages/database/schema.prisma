@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      Role     @default(EDITOR)
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+}
+
+model KnowledgeBase {
+  id           String    @id @default(cuid())
+  name         String
+  description  String?
+  systemPrompt String    @default("Bạn là trợ lý AI hỗ trợ khách hàng. Trả lời bằng tiếng Việt, ngắn gọn và chính xác.")
+  temperature  Float     @default(0.3)
+  maxTokens    Int       @default(512)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  documents Document[]
+  apiKeys   ApiKey[]
+  sessions  Session[]
+
+  @@map("knowledge_bases")
+}
+
+model Document {
+  id              String         @id @default(cuid())
+  knowledgeBaseId String
+  filename        String
+  originalName    String
+  mimeType        String
+  fileSize        Int
+  status          DocumentStatus @default(PENDING)
+  errorMessage    String?
+  chunkCount      Int            @default(0)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks        Chunk[]
+
+  @@map("documents")
+}
+
+enum DocumentStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+model Chunk {
+  id         String   @id @default(cuid())
+  documentId String
+  content    String
+  chunkIndex Int
+  // embedding column added via raw SQL after migration:
+  // ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding vector(768);
+  createdAt  DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("chunks")
+}
+
+model ApiKey {
+  id              String    @id @default(cuid())
+  knowledgeBaseId String
+  name            String
+  key             String    @unique
+  isActive        Boolean   @default(true)
+  allowedOrigins  String[]  @default([])
+  rateLimit       Int       @default(100)
+  lastUsedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id])
+  sessions      Session[]
+
+  @@map("api_keys")
+}
+
+model Session {
+  id              String   @id @default(cuid())
+  knowledgeBaseId String
+  apiKeyId        String?
+  externalUserId  String?
+  createdAt       DateTime @default(now())
+  lastMessageAt   DateTime @default(now())
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id])
+  apiKey        ApiKey?       @relation(fields: [apiKeyId], references: [id])
+  messages      Message[]
+
+  @@map("sessions")
+}
+
+model Message {
+  id         String      @id @default(cuid())
+  sessionId  String
+  role       MessageRole
+  content    String
+  tokensUsed Int         @default(0)
+  latencyMs  Int         @default(0)
+  createdAt  DateTime    @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
