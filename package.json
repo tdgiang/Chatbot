@@ -8,7 +8,9 @@
       "@prisma/engines",
       "prisma",
       "@nestjs/core",
-      "unrs-resolver"
+      "unrs-resolver",
+      "bcrypt",
+      "msgpackr-extract"
     ]
   },
   "scripts": {
