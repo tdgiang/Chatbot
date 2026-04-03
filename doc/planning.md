@@ -13,7 +13,7 @@
 | # | Nội dung | Trạng thái |
 |---|---|---|
 | A1 | Groq API key chưa có — cần đăng ký tại [console.groq.com](https://console.groq.com) (free tier) trước khi bắt Phase 2 Step 4 | ⚠️ Cần làm |
-| A2 | Docker Desktop cần được cài và chạy trước Phase 0 | Kiểm tra trước khi bắt đầu |
+| A2 | Docker Desktop cần được cài và chạy trước Phase 1 | ⚠️ Cần mở thủ công |
 | A3 | Ollama chạy local chỉ cần thiết cho production — dev dùng Groq | OK |
 | A4 | Phase 3–4 (deploy, widget) sẽ được lên kế hoạch sau khi Phase 2 hoàn thành | Pending |
 
@@ -33,22 +33,22 @@ Tuần 3 (Day 11–14): Phase 4 (Next.js CMS) → Phase 5 (integration & smoke t
 **Ước tính:** 2–3 giờ | **Phải hoàn thành trước khi viết code**
 
 ### Checklist cài đặt
-- [ ] Node.js 20 LTS (`node -v` để kiểm tra)
-- [ ] pnpm 8.x — `npm install -g pnpm`
-- [ ] Docker Desktop (bật và chạy được `docker ps`)
-- [ ] NestJS CLI — `pnpm add -g @nestjs/cli`
-- [ ] Git khởi tạo repo
+- [x] Node.js — v22.12.0 ✅
+- [x] pnpm — v10.33.0 ✅ (fix: thêm `packageManager` vào root `package.json` để bypass Corepack/Yarn conflict)
+- [ ] Docker Desktop — **cần mở thủ công** (daemon chưa chạy)
+- [x] NestJS CLI — v11.0.16 ✅ (nâng lên NestJS 11 thay vì 10.x)
+- [x] Git — khởi tạo repo, commit đầu tiên ✅
 
 ### Checklist tài khoản & keys
-- [ ] Đăng ký [console.groq.com](https://console.groq.com) → lấy `GROQ_API_KEY`
-- [ ] Tạo file `.env` từ `.env.example` và điền key
+- [ ] Đăng ký [console.groq.com](https://console.groq.com) → lấy `GROQ_API_KEY` — **cần làm trước Phase 2 Step 6**
+- [x] Tạo file `.env` từ `.env.example` ✅ (cần điền `GROQ_API_KEY` khi có)
 
 ### Kiểm tra xong khi
 ```bash
-node -v        # v20.x
-pnpm -v        # 8.x
-docker ps      # no error
-nest --version # 10.x
+node -v        # v22.12.0 ✅
+pnpm -v        # 10.33.0 ✅
+docker ps      # ❌ cần mở Docker Desktop trước
+nest --version # 11.x ✅
 ```
 
 ---
