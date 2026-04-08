@@ -11,6 +11,7 @@ import {
   Body,
   ParseFilePipe,
   MaxFileSizeValidator,
+  HttpCode,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -55,6 +56,12 @@ export class DocumentsController {
   @Get(':id/status')
   getStatus(@Param('id') id: string) {
     return this.documentsService.getStatus(id);
+  }
+
+  @Post(':id/reindex')
+  @HttpCode(200)
+  reindex(@Param('id') id: string) {
+    return this.documentsService.reindex(id);
   }
 
   @Delete(':id')

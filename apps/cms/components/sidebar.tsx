@@ -10,11 +10,13 @@ import {
   MessageSquare,
   BarChart2,
   LogOut,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/documents", label: "Tài liệu", icon: FileText },
+  { href: "/faq", label: "FAQ", icon: HelpCircle },
   { href: "/chatbot", label: "Chatbot", icon: Bot },
   { href: "/api-keys", label: "API Keys", icon: Key },
   { href: "/playground", label: "Playground", icon: MessageSquare },

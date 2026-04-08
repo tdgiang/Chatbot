@@ -4,9 +4,10 @@ import { ChatController } from './chat.controller';
 import { ApiKeyGuard } from './guards/api-key.guard';
 import { RagModule } from '../rag/rag.module';
 import { AiModule } from '../ai/ai.module';
+import { FaqModule } from '../faq/faq.module';
 
 @Module({
-  imports: [RagModule, AiModule],
+  imports: [RagModule, AiModule, FaqModule],
   providers: [ChatService, ApiKeyGuard],
   controllers: [ChatController],
 })

@@ -23,5 +23,8 @@
     "db:seed": "pnpm --filter @chatbot/database seed",
     "db:studio": "pnpm --filter @chatbot/database studio",
     "db:reset": "pnpm --filter @chatbot/database migrate:reset"
+  },
+  "devDependencies": {
+    "turbo": "^2.9.4"
   }
 }

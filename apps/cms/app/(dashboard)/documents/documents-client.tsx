@@ -4,7 +4,8 @@ import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api-client";
-import { Upload, Trash2, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { Upload, Trash2, RefreshCw, RotateCcw } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 interface Document {
@@ -45,6 +46,7 @@ export function DocumentsClient({
   const [documents, setDocuments] = useState<Document[]>(initialDocuments);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [reindexingId, setReindexingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
@@ -115,6 +117,22 @@ export function DocumentsClient({
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleReindex(docId: string) {
+    setReindexingId(docId);
+    try {
+      await apiClient.post(`/cms/documents/${docId}/reindex`);
+      setDocuments((prev) =>
+        prev.map((d) => d.id === docId ? { ...d, status: "PENDING", chunkCount: 0, errorMessage: undefined } : d)
+      );
+      toast({ title: "Đang reindex", description: "Tài liệu sẽ được xử lý lại." });
+      startPolling(docId);
+    } catch {
+      toast({ title: "Lỗi", description: "Không thể reindex tài liệu.", variant: "destructive" });
+    } finally {
+      setReindexingId(null);
     }
   }
 
@@ -200,11 +218,34 @@ export function DocumentsClient({
                   </td>
                   <td className="px-4 py-3 text-gray-600">{formatSize(doc.fileSize)}</td>
                   <td className="px-4 py-3">{statusBadge(doc.status)}</td>
-                  <td className="px-4 py-3 text-gray-600">{doc.chunkCount}</td>
+                  <td className="px-4 py-3">
+                    {doc.status === "DONE" && doc.chunkCount > 0 ? (
+                      <Link
+                        href={`/documents/${doc.id}/chunks`}
+                        className="text-blue-600 hover:underline font-medium"
+                      >
+                        {doc.chunkCount}
+                      </Link>
+                    ) : (
+                      <span className="text-gray-600">{doc.chunkCount}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">
                     {new Date(doc.createdAt).toLocaleDateString("vi-VN")}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right space-x-1">
+                    {(doc.status === "DONE" || doc.status === "FAILED") && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleReindex(doc.id)}
+                        disabled={reindexingId === doc.id}
+                        title="Reindex lại tài liệu"
+                        className="text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                      >
+                        <RotateCcw className={`h-4 w-4 ${reindexingId === doc.id ? "animate-spin" : ""}`} />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"

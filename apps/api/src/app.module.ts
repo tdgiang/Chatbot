@@ -11,6 +11,8 @@ import { ChatModule } from './modules/chat/chat.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { FaqModule } from './modules/faq/faq.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     ApiKeysModule,
     KnowledgeModule,
     AnalyticsModule,
+    FaqModule,
+    FeedbackModule,
   ],
 })
 export class AppModule {}

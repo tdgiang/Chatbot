@@ -19,7 +19,7 @@ export class GroqProvider implements AiProvider {
     const completion = await this.client.chat.completions.create({
       model: this.model,
       messages: messages.map((m) => ({
-        role: m.role === 'USER' ? 'user' : 'assistant',
+        role: m.role === 'USER' ? 'user' : m.role === 'SYSTEM' ? 'system' : 'assistant',
         content: m.content,
       })),
       temperature: options?.temperature ?? 0.3,
@@ -32,7 +32,7 @@ export class GroqProvider implements AiProvider {
     const stream = await this.client.chat.completions.create({
       model: this.model,
       messages: messages.map((m) => ({
-        role: m.role === 'USER' ? 'user' : 'assistant',
+        role: m.role === 'USER' ? 'user' : m.role === 'SYSTEM' ? 'system' : 'assistant',
         content: m.content,
       })),
       temperature: options?.temperature ?? 0.3,

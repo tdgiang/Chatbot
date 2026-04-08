@@ -63,6 +63,31 @@ export class DocumentsService {
     return { id: doc.id, status: doc.status, chunkCount: doc.chunkCount, errorMessage: doc.errorMessage };
   }
 
+  async reindex(id: string) {
+    const doc = await this.prisma.document.findUnique({ where: { id } });
+    if (!doc) throw new NotFoundException('Document not found');
+
+    const filePath = `${process.env.UPLOAD_DIR ?? './uploads'}/${doc.filename}`;
+
+    // Delete old chunks
+    await this.prisma.chunk.deleteMany({ where: { documentId: id } });
+
+    // Reset status
+    await this.prisma.document.update({
+      where: { id },
+      data: { status: 'PENDING', chunkCount: 0, errorMessage: null },
+    });
+
+    // Re-queue indexing job
+    await this.queue.add('index', {
+      documentId: doc.id,
+      filePath,
+      mimeType: doc.mimeType,
+    });
+
+    return { id: doc.id, status: 'PENDING' };
+  }
+
   async remove(id: string) {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Document not found');

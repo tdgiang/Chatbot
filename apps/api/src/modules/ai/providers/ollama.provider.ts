@@ -23,7 +23,7 @@ export class OllamaProvider implements AiProvider {
       body: JSON.stringify({
         model: this.model,
         messages: messages.map((m) => ({
-          role: m.role === 'USER' ? 'user' : 'assistant',
+          role: m.role === 'USER' ? 'user' : m.role === 'SYSTEM' ? 'system' : 'assistant',
           content: m.content,
         })),
         options: { temperature: options?.temperature ?? 0.3, num_predict: options?.maxTokens ?? 512 },
@@ -41,7 +41,7 @@ export class OllamaProvider implements AiProvider {
       body: JSON.stringify({
         model: this.model,
         messages: messages.map((m) => ({
-          role: m.role === 'USER' ? 'user' : 'assistant',
+          role: m.role === 'USER' ? 'user' : m.role === 'SYSTEM' ? 'system' : 'assistant',
           content: m.content,
         })),
         options: { temperature: options?.temperature ?? 0.3, num_predict: options?.maxTokens ?? 512 },
