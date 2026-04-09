@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api-client";
 import Link from "next/link";
-import { Upload, Trash2, RefreshCw, RotateCcw } from "lucide-react";
+import { Upload, Trash2, RefreshCw, RotateCcw, Download } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 interface Document {
@@ -49,6 +49,7 @@ export function DocumentsClient({
   const [reindexingId, setReindexingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingRefs = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
   const startPolling = useCallback((docId: string) => {
     if (pollingRefs.current[docId]) return;
@@ -83,6 +84,23 @@ export function DocumentsClient({
     }, 3000);
     pollingRefs.current[docId] = interval;
   }, []);
+
+  async function handleDownloadTemplate() {
+    setDownloadingTemplate(true);
+    try {
+      const res = await apiClient.get("/cms/documents/template", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "document-template.docx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Lỗi", description: "Không thể tải file mẫu.", variant: "destructive" });
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -151,37 +169,50 @@ export function DocumentsClient({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Upload zone */}
-      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center bg-white">
-        <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
-        <p className="text-sm text-gray-600 mb-3">Upload tài liệu PDF, DOCX, hoặc TXT</p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,.txt"
-          onChange={handleUpload}
-          className="hidden"
-          id="file-upload"
-        />
-        <Button
-          variant="outline"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading || !knowledgeBaseId}
-        >
-          {uploading ? (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Đang upload...
-            </>
-          ) : (
-            "Chọn file"
-          )}
-        </Button>
-        {!knowledgeBaseId && (
-          <p className="text-xs text-red-500 mt-2">Chưa cấu hình Knowledge Base</p>
-        )}
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-500">{documents.length} tài liệu</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadTemplate}
+            disabled={downloadingTemplate}
+            title="Tải file .docx mẫu để xem định dạng khuyến nghị"
+          >
+            <Download className="h-4 w-4 mr-1" />
+            {downloadingTemplate ? "Đang tải..." : "Tải file mẫu"}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading || !knowledgeBaseId}
+            title="Upload tài liệu PDF, DOCX, hoặc TXT"
+          >
+            {uploading ? (
+              <><RefreshCw className="h-4 w-4 mr-1 animate-spin" />Đang upload...</>
+            ) : (
+              <><Upload className="h-4 w-4 mr-1" />Upload tài liệu</>
+            )}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt"
+            onChange={handleUpload}
+            className="hidden"
+          />
+        </div>
       </div>
+
+      {!knowledgeBaseId && (
+        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-700">
+          Chưa cấu hình Knowledge Base.
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">

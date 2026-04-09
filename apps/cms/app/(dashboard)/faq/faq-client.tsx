@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiClient } from "@/lib/api-client";
 import { toast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight, Upload, Download } from "lucide-react";
 
 interface FaqDto {
   id: string;
@@ -56,6 +56,8 @@ export function FaqClient({ knowledgeBaseId, initialData }: Props) {
 
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchPage = useCallback(async (p: number) => {
     setLoadingPage(true);
@@ -162,6 +164,52 @@ export function FaqClient({ knowledgeBaseId, initialData }: Props) {
     }
   }
 
+  async function handleDownloadTemplate() {
+    try {
+      const res = await apiClient.get("/cms/faq/template", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "faq-template.docx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Lỗi", description: "Không thể tải file mẫu.", variant: "destructive" });
+    }
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith(".docx")) {
+      toast({ title: "Lỗi", description: "Chỉ chấp nhận file .docx", variant: "destructive" });
+      return;
+    }
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await apiClient.post<{
+        imported: number; skipped: number; total: number; errors: string[];
+      }>(`/cms/faq/import-docx?knowledgeBaseId=${knowledgeBaseId}`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const { imported, skipped, total: t } = res.data;
+      toast({
+        title: `Import hoàn tất: ${imported}/${t} FAQ`,
+        description: skipped > 0 ? `${skipped} mục bị bỏ qua do lỗi.` : "Tất cả đã được tạo thành công.",
+        variant: imported > 0 ? "default" : "destructive",
+      });
+      if (imported > 0) await fetchPage(1);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Không thể import file.";
+      toast({ title: "Lỗi import", description: msg, variant: "destructive" });
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -170,10 +218,38 @@ export function FaqClient({ knowledgeBaseId, initialData }: Props) {
           <h1 className="text-xl font-semibold text-gray-900">FAQ & Câu Trả Lời Cố Định</h1>
           <p className="text-sm text-gray-500 mt-0.5">{total} câu hỏi — trả lời ngay, không qua AI</p>
         </div>
-        <Button onClick={openCreate} disabled={!knowledgeBaseId} size="sm">
-          <Plus className="h-4 w-4 mr-1" />
-          Thêm FAQ
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadTemplate}
+            title="Tải file mẫu .md để nhập FAQ hàng loạt"
+          >
+            <Download className="h-4 w-4 mr-1" />
+            Tải file mẫu
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!knowledgeBaseId || importing}
+            title="Upload file .md để import FAQ hàng loạt"
+          >
+            <Upload className="h-4 w-4 mr-1" />
+            {importing ? "Đang import..." : "Import .docx"}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".docx"
+            className="hidden"
+            onChange={handleImportFile}
+          />
+          <Button onClick={openCreate} disabled={!knowledgeBaseId} size="sm">
+            <Plus className="h-4 w-4 mr-1" />
+            Thêm FAQ
+          </Button>
+        </div>
       </div>
 
       {!knowledgeBaseId && (
@@ -221,6 +297,7 @@ export function FaqClient({ knowledgeBaseId, initialData }: Props) {
                   <td className="px-4 py-3 text-center text-gray-500 text-xs">{faq.priority}</td>
                   <td className="px-4 py-3 text-center">
                     <button
+                      type="button"
                       onClick={() => handleToggle(faq)}
                       disabled={togglingId === faq.id}
                       className="inline-flex items-center gap-1 text-xs font-medium transition-colors"

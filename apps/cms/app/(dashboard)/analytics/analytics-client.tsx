@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api-client";
@@ -103,9 +103,8 @@ export function AnalyticsClient({
               </tr>
             ) : (
               initialSessions.map((session) => (
-                <>
+                <Fragment key={session.id}>
                   <tr
-                    key={session.id}
                     className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
                     onClick={() => void toggleSession(session.id)}
                   >
@@ -168,7 +167,7 @@ export function AnalyticsClient({
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))
             )}
           </tbody>

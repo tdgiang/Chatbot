@@ -177,8 +177,8 @@ export function ApiKeysClient({
                 <tr key={key.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900">{key.name}</div>
-                    <div className="text-xs text-gray-400 font-mono mt-0.5">
-                      {key.key.slice(0, 8)}...
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      Tạo {new Date(key.createdAt).toLocaleDateString("vi-VN")}
                     </div>
                   </td>
                   <td className="px-4 py-3">
