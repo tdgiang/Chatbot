@@ -111,7 +111,7 @@ export class ChatService {
       dto.message,
     );
 
-    const aiOptions = { temperature: kb?.temperature ?? 0.3, maxTokens: kb?.maxTokens ?? 512 };
+    const aiOptions = { temperature: kb?.temperature ?? 0.3, maxTokens: kb?.maxTokens ?? 1024 };
 
     if (dto.stream) {
       return this.streamResponse(res, session.id, messages, aiOptions, start);

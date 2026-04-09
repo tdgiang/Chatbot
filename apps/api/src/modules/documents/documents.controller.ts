@@ -12,11 +12,13 @@ import {
   ParseFilePipe,
   MaxFileSizeValidator,
   HttpCode,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { randomUUID } from 'crypto';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DocumentsService } from './documents.service';
 import { UploadDocumentDto } from './dto/upload-document.dto';
@@ -46,6 +48,14 @@ export class DocumentsController {
     @Body() dto: UploadDocumentDto,
   ) {
     return this.documentsService.upload(file, dto.knowledgeBaseId);
+  }
+
+  @Get('template')
+  async downloadTemplate(@Res() res: Response) {
+    const buffer = await this.documentsService.generateTemplateDocx();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', 'attachment; filename="document-template.docx"');
+    res.send(buffer);
   }
 
   @Get()

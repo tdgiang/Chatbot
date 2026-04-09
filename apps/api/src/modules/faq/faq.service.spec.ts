@@ -1,8 +1,11 @@
 import { Test } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { FaqService } from './faq.service';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import * as mammoth from 'mammoth';
+
+jest.mock('mammoth');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,10 +105,14 @@ describe('FaqService', () => {
       delete: jest.Mock;
       findUnique: jest.Mock;
     };
+    knowledgeBase: {
+      findUnique: jest.Mock;
+    };
   };
   let ai: { embed: jest.Mock };
 
   beforeEach(async () => {
+    jest.clearAllMocks();
     prisma = {
       faqOverride: {
         findMany: jest.fn(),
@@ -113,6 +120,9 @@ describe('FaqService', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      knowledgeBase: {
         findUnique: jest.fn(),
       },
     };
@@ -479,6 +489,177 @@ describe('FaqService', () => {
           data: { matchCount: { increment: 1 } },
         })
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // importFromDocx()
+  // -------------------------------------------------------------------------
+
+  describe('importFromDocx()', () => {
+    const KB_ID = 'kb-import';
+
+    function makeDocxBuffer(content = 'fake-docx-content'): Buffer {
+      return Buffer.from(content);
+    }
+
+    beforeEach(() => {
+      prisma.knowledgeBase.findUnique.mockResolvedValue({ id: KB_ID, name: 'Test KB' });
+      ai.embed.mockResolvedValue(unitVec(768));
+      prisma.faqOverride.create.mockImplementation(({ data }: { data: { question: string; answer: string; knowledgeBaseId: string; priority: number; questionEmbed: Buffer | null } }) =>
+        Promise.resolve(makeFaqRow({ question: data.question, answer: data.answer }))
+      );
+    });
+
+    it('imports all Q&A pairs from valid DOCX HTML', async () => {
+      const html = `
+        <h2>Điều kiện sức khỏe là gì?</h2>
+        <p>Nam chiều cao từ 1m64, nữ từ 1m58.</p>
+        <h2>Thời gian đăng ký?</h2>
+        <p>Từ tháng 3 đến tháng 4 hằng năm.</p>
+      `;
+      (mammoth.convertToHtml as jest.Mock).mockResolvedValue({ value: html });
+
+      const result = await service.importFromDocx(makeDocxBuffer(), KB_ID);
+
+      expect(result.total).toBe(2);
+      expect(result.imported).toBe(2);
+      expect(result.skipped).toBe(0);
+      expect(prisma.faqOverride.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws BadRequestException when KnowledgeBase not found', async () => {
+      prisma.knowledgeBase.findUnique.mockResolvedValue(null);
+
+      await expect(service.importFromDocx(makeDocxBuffer(), 'ghost-kb'))
+        .rejects.toThrow(BadRequestException);
+
+      expect(mammoth.convertToHtml).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when no Q&A pairs found (no H2 headings)', async () => {
+      (mammoth.convertToHtml as jest.Mock).mockResolvedValue({
+        value: '<p>Chỉ có đoạn văn thường, không có heading nào.</p>',
+      });
+
+      await expect(service.importFromDocx(makeDocxBuffer(), KB_ID))
+        .rejects.toThrow(BadRequestException);
+    });
+
+    it('skips pairs where question or answer is shorter than 5 chars', async () => {
+      const html = `
+        <h2>OK?</h2>
+        <p>Short answer.</p>
+        <h2>Điều kiện sức khỏe là gì?</h2>
+        <p>Nam chiều cao từ 1m64, nữ từ 1m58.</p>
+      `;
+      // "OK?" = 3 chars < 5 → skipped at parse stage (not even attempted)
+      (mammoth.convertToHtml as jest.Mock).mockResolvedValue({ value: html });
+
+      const result = await service.importFromDocx(makeDocxBuffer(), KB_ID);
+
+      expect(result.total).toBe(1); // only 1 valid pair passed the 5-char filter
+      expect(result.imported).toBe(1);
+    });
+
+    it('counts skipped when create() throws for a pair', async () => {
+      const html = `
+        <h2>Câu hỏi hợp lệ số 1?</h2>
+        <p>Câu trả lời hợp lệ số 1.</p>
+        <h2>Câu hỏi hợp lệ số 2?</h2>
+        <p>Câu trả lời hợp lệ số 2.</p>
+      `;
+      (mammoth.convertToHtml as jest.Mock).mockResolvedValue({ value: html });
+      // First call succeeds, second throws
+      prisma.faqOverride.create
+        .mockResolvedValueOnce(makeFaqRow())
+        .mockRejectedValueOnce(new Error('DB error'));
+
+      const result = await service.importFromDocx(makeDocxBuffer(), KB_ID);
+
+      expect(result.total).toBe(2);
+      expect(result.imported).toBe(1);
+      expect(result.skipped).toBe(1);
+      expect(result.errors).toHaveLength(1);
+    });
+
+    it('passes knowledgeBaseId to each created FAQ', async () => {
+      const html = '<h2>Câu hỏi tuyển sinh?</h2><p>Thí sinh cần nộp đầy đủ hồ sơ.</p>';
+      (mammoth.convertToHtml as jest.Mock).mockResolvedValue({ value: html });
+
+      await service.importFromDocx(makeDocxBuffer(), KB_ID);
+
+      expect(prisma.faqOverride.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ knowledgeBaseId: KB_ID }),
+        })
+      );
+    });
+
+    it('answer text strips HTML tags and converts list items to bullet points', async () => {
+      const html = `
+        <h2>Hồ sơ gồm những gì?</h2>
+        <ul><li>Căn cước công dân</li><li>Bằng tốt nghiệp THPT</li></ul>
+      `;
+      (mammoth.convertToHtml as jest.Mock).mockResolvedValue({ value: html });
+
+      await service.importFromDocx(makeDocxBuffer(), KB_ID);
+
+      const createCall = prisma.faqOverride.create.mock.calls[0][0] as { data: { answer: string } };
+      expect(createCall.data.answer).toContain('•');
+      expect(createCall.data.answer).toContain('Căn cước công dân');
+      expect(createCall.data.answer).not.toContain('<li>');
+    });
+
+    it('caps errors array at 5 entries even when many pairs fail', async () => {
+      const pairs = Array.from({ length: 10 }, (_, i) =>
+        `<h2>Câu hỏi số ${i + 1} dài đủ ký tự?</h2><p>Câu trả lời số ${i + 1} dài đủ ký tự.</p>`
+      ).join('');
+      (mammoth.convertToHtml as jest.Mock).mockResolvedValue({ value: pairs });
+      prisma.faqOverride.create.mockRejectedValue(new Error('DB error'));
+
+      const result = await service.importFromDocx(makeDocxBuffer(), KB_ID);
+
+      expect(result.skipped).toBe(10);
+      expect(result.errors.length).toBeLessThanOrEqual(5);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // generateTemplateDocx()
+  // -------------------------------------------------------------------------
+
+  describe('generateTemplateDocx()', () => {
+    it('returns a non-empty Buffer', async () => {
+      const buffer = await service.generateTemplateDocx();
+
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect(buffer.length).toBeGreaterThan(0);
+    });
+
+    it('returns a valid ZIP/DOCX file (starts with PK magic bytes)', async () => {
+      const buffer = await service.generateTemplateDocx();
+
+      // DOCX = ZIP archive: magic bytes 50 4B 03 04
+      expect(buffer[0]).toBe(0x50); // 'P'
+      expect(buffer[1]).toBe(0x4b); // 'K'
+    });
+
+    it('produces a buffer larger than 1KB (contains sample content)', async () => {
+      const buffer = await service.generateTemplateDocx();
+
+      expect(buffer.length).toBeGreaterThan(1024);
+    });
+
+    it('can be called multiple times and returns consistent structure', async () => {
+      const buf1 = await service.generateTemplateDocx();
+      const buf2 = await service.generateTemplateDocx();
+
+      // Both valid DOCX
+      expect(buf1[0]).toBe(0x50);
+      expect(buf2[0]).toBe(0x50);
+      // Size should be consistent (same template content)
+      expect(Math.abs(buf1.length - buf2.length)).toBeLessThan(100);
     });
   });
 });

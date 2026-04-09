@@ -28,4 +28,17 @@ export class AnalyticsService {
     ]);
     return { data, total, page, limit };
   }
+
+  async getStats() {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [totalSessions, totalMessages, sessionsToday] = await Promise.all([
+      this.prisma.session.count(),
+      this.prisma.message.count(),
+      this.prisma.session.count({ where: { createdAt: { gte: todayStart } } }),
+    ]);
+
+    return { totalSessions, totalMessages, sessionsToday };
+  }
 }

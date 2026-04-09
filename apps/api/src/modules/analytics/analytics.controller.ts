@@ -7,6 +7,11 @@ import { AnalyticsService } from './analytics.service';
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
+  @Get('stats')
+  getStats() {
+    return this.analyticsService.getStats();
+  }
+
   @Get('sessions')
   getSessions(@Query('page') page = '1', @Query('limit') limit = '20') {
     return this.analyticsService.getSessions(+page, +limit);

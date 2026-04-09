@@ -99,7 +99,8 @@ export class DocumentsProcessor extends WorkerHost {
       let inserted = 0;
       for (let i = 0; i < chunksToInsert.length; i++) {
         const { content, sourceSection, chunkType } = chunksToInsert[i];
-        const embedding = await this.ai.embed(content);
+        // nomic-embed-text requires "search_document:" prefix for document chunks
+        const embedding = await this.ai.embed(`search_document: ${content}`);
         const vectorLiteral = embedding.length > 0 ? `[${embedding.join(',')}]` : null;
 
         if (vectorLiteral) {
