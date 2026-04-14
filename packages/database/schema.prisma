@@ -34,10 +34,11 @@ model KnowledgeBase {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  documents Document[]
-  apiKeys   ApiKey[]
-  sessions  Session[]
-  faqs      FaqOverride[]
+  documents            Document[]
+  apiKeys              ApiKey[]
+  sessions             Session[]
+  faqs                 FaqOverride[]
+  channelIntegrations  ChannelIntegration[]
 
   @@map("knowledge_bases")
 }
@@ -120,18 +121,46 @@ model ApiKey {
   @@map("api_keys")
 }
 
-model Session {
-  id              String   @id @default(cuid())
-  knowledgeBaseId String
-  apiKeyId        String?
-  externalUserId  String?
-  createdAt       DateTime @default(now())
-  lastMessageAt   DateTime @default(now())
+enum ChannelType {
+  WEBSITE
+  MESSENGER
+  ZALO
+  SLACK
+}
 
-  knowledgeBase KnowledgeBase   @relation(fields: [knowledgeBaseId], references: [id])
-  apiKey        ApiKey?         @relation(fields: [apiKeyId], references: [id])
-  messages      Message[]
-  feedbacks     MessageFeedback[]
+model ChannelIntegration {
+  id              String      @id @default(cuid())
+  knowledgeBaseId String
+  channel         ChannelType
+  name            String
+  isActive        Boolean     @default(true)
+  configEncrypted String      // AES-256-GCM encrypted JSON
+  webhookSecret   String?     // verify signature từ platform
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  knowledgeBase KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  sessions      Session[]
+
+  @@unique([knowledgeBaseId, channel])
+  @@map("channel_integrations")
+}
+
+model Session {
+  id                   String      @id @default(cuid())
+  knowledgeBaseId      String
+  apiKeyId             String?
+  channelIntegrationId String?
+  channel              ChannelType?
+  externalUserId       String?
+  createdAt            DateTime    @default(now())
+  lastMessageAt        DateTime    @default(now())
+
+  knowledgeBase      KnowledgeBase       @relation(fields: [knowledgeBaseId], references: [id])
+  apiKey             ApiKey?             @relation(fields: [apiKeyId], references: [id])
+  channelIntegration ChannelIntegration? @relation(fields: [channelIntegrationId], references: [id])
+  messages           Message[]
+  feedbacks          MessageFeedback[]
 
   @@map("sessions")
 }

@@ -11,6 +11,7 @@ import {
   BarChart2,
   LogOut,
   HelpCircle,
+  Plug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/faq", label: "FAQ", icon: HelpCircle },
   { href: "/chatbot", label: "Chatbot", icon: Bot },
   { href: "/api-keys", label: "API Keys", icon: Key },
+  { href: "/integrations", label: "Tích hợp", icon: Plug },
   { href: "/playground", label: "Playground", icon: MessageSquare },
   { href: "/analytics", label: "Analytics", icon: BarChart2 },
 ];

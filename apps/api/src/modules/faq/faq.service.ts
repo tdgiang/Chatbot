@@ -7,11 +7,6 @@ import { CreateFaqDto } from './dto/create-faq.dto';
 import { UpdateFaqDto } from './dto/update-faq.dto';
 import { FaqQueryDto } from './dto/faq-query.dto';
 
-// nomic-embed-text (no prefix) KHÔNG phân biệt các câu hỏi cùng domain dù khác topic:
-//   - exact match: 0.0000
-//   - wrong FAQ cùng trường (Học Phí vs Sứ mạng): 0.0116 — quá gần!
-// Threshold 0.01: chỉ match near-exact query, còn lại đi RAG (tốt hơn false match)
-const FAQ_THRESHOLD = 0.01;
 
 @Injectable()
 export class FaqService {
@@ -272,44 +267,68 @@ export class FaqService {
   // ---------------------------------------------------------------------------
 
   async lookup(question: string, knowledgeBaseId: string): Promise<{ id: string; answer: string } | null> {
-    // no-prefix symmetric embedding: exact match ≈ 0, wrong-topic ≈ 0.086, threshold 0.07
-    const embedding = await this.ai.embed(question);
-    if (embedding.length === 0) return null;
-
     const faqs = await this.prisma.faqOverride.findMany({
-      where: { knowledgeBaseId, isActive: true, questionEmbed: { not: null } },
-      select: { id: true, answer: true, priority: true, questionEmbed: true },
+      where: { knowledgeBaseId, isActive: true },
+      select: { id: true, question: true, answer: true, priority: true },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
     });
 
     if (faqs.length === 0) return null;
 
-    let best: { id: string; answer: string; distance: number; priority: number } | null = null;
-
-    for (const faq of faqs) {
-      const storedEmbed = JSON.parse(Buffer.from(faq.questionEmbed!).toString()) as number[];
-      const distance = cosineDist(embedding, storedEmbed);
-
-      if (distance <= FAQ_THRESHOLD) {
-        if (
-          best === null ||
-          distance < best.distance ||
-          (distance === best.distance && faq.priority > best.priority)
-        ) {
-          best = { id: faq.id, answer: faq.answer, distance, priority: faq.priority };
-        }
-      }
-    }
-
-    if (!best) return null;
+    // LLM-based classification — embedding similarity không phân biệt được paraphrase
+    // cùng domain (ví dụ: "Học Phí" vs "Sứ mạng" của cùng 1 trường chỉ cách nhau 0.011)
+    const matched = await this.llmFaqMatch(question, faqs);
+    if (!matched) return null;
 
     // Increment matchCount asynchronously — don't block response
     this.prisma.faqOverride.update({
-      where: { id: best.id },
+      where: { id: matched.id },
       data: { matchCount: { increment: 1 } },
     }).catch((err: unknown) => this.logger.error(`matchCount update failed: ${String(err)}`));
 
-    this.logger.log(`FAQ match: id=${best.id} distance=${best.distance.toFixed(4)}`);
-    return { id: best.id, answer: best.answer };
+    this.logger.log(`FAQ match (LLM): id=${matched.id} — "${matched.question.slice(0, 50)}"`);
+    return { id: matched.id, answer: matched.answer };
+  }
+
+  /** Dùng LLM (temperature=0, maxTokens=10) để phân loại câu hỏi có khớp FAQ nào không.
+   *  Chính xác hơn embedding similarity với paraphrase và câu hỏi cùng domain.
+   *  Fallback về null (→ RAG) nếu LLM không trả về kết quả hợp lệ. */
+  private async llmFaqMatch(
+    question: string,
+    faqs: Array<{ id: string; question: string; answer: string; priority: number }>,
+  ): Promise<{ id: string; question: string; answer: string } | null> {
+    const faqList = faqs
+      .map((f, i) => `[${i}] ${f.question}`)
+      .join('\n');
+
+    try {
+      const response = await this.ai.chat(
+        [
+          {
+            role: 'SYSTEM',
+            content:
+              'Bạn là hệ thống phân loại câu hỏi. Chỉ trả về MỘT số thứ tự (0, 1, 2...) nếu câu hỏi khớp với FAQ, hoặc "none" nếu không khớp. KHÔNG giải thích.',
+          },
+          {
+            role: 'USER',
+            content: `Câu hỏi: "${question}"\n\nFAQ:\n${faqList}\n\nCâu hỏi có khớp với FAQ nào không? (số thứ tự hoặc "none")`,
+          },
+        ],
+        { temperature: 0, maxTokens: 10 },
+      );
+
+      const trimmed = response.trim().toLowerCase().replace(/\D/g, '');
+      if (!trimmed) return null;
+
+      const index = parseInt(trimmed, 10);
+      if (!isNaN(index) && index >= 0 && index < faqs.length) {
+        return faqs[index];
+      }
+    } catch (err) {
+      this.logger.warn(`LLM FAQ match failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    return null;
   }
 
   // ---------------------------------------------------------------------------
@@ -384,16 +403,3 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
-// ---------------------------------------------------------------------------
-// Pure util — cosine distance in [0, 2]
-// ---------------------------------------------------------------------------
-function cosineDist(a: number[], b: number[]): number {
-  let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  if (normA === 0 || normB === 0) return 2; // max distance
-  return 1 - dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}

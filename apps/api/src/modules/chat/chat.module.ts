@@ -10,5 +10,6 @@ import { FaqModule } from '../faq/faq.module';
   imports: [RagModule, AiModule, FaqModule],
   providers: [ChatService, ApiKeyGuard],
   controllers: [ChatController],
+  exports: [ChatService],
 })
 export class ChatModule {}

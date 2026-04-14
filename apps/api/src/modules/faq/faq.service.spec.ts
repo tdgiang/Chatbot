@@ -13,32 +13,6 @@ jest.mock('mammoth');
 
 const NOW = new Date('2026-04-08T00:00:00.000Z');
 
-/** Build a vector that is exactly [1, 0, 0, ...0] of given length */
-function unitVec(dim = 3): number[] {
-  return [1, ...Array(dim - 1).fill(0)];
-}
-
-/** Build a vector orthogonal to unitVec: [0, 1, 0, ...0] */
-function orthogVec(dim = 3): number[] {
-  return [0, 1, ...Array(dim - 2).fill(0)];
-}
-
-/** Cosine distance in [0,2] — mirrors faq.service.ts private impl */
-function cosineDist(a: number[], b: number[]): number {
-  let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  if (normA === 0 || normB === 0) return 2;
-  return 1 - dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-function embedBuf(vec: number[]): Buffer {
-  return Buffer.from(JSON.stringify(vec));
-}
-
 function makeFaqRow(overrides: Partial<{
   id: string; question: string; answer: string; isActive: boolean;
   priority: number; matchCount: number; questionEmbed: Buffer | null;
@@ -51,44 +25,12 @@ function makeFaqRow(overrides: Partial<{
     isActive: true,
     priority: 0,
     matchCount: 0,
-    questionEmbed: embedBuf(unitVec()),
+    questionEmbed: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Cosine distance — pure function verification
-// ---------------------------------------------------------------------------
-
-describe('cosineDist (pure util)', () => {
-  it('returns 0 for identical vectors', () => {
-    expect(cosineDist([1, 0, 0], [1, 0, 0])).toBeCloseTo(0);
-  });
-
-  it('returns 1 for orthogonal vectors', () => {
-    expect(cosineDist([1, 0, 0], [0, 1, 0])).toBeCloseTo(1);
-  });
-
-  it('returns 2 for zero vector (max distance)', () => {
-    expect(cosineDist([0, 0, 0], [1, 0, 0])).toBe(2);
-  });
-
-  it('returns value between 0 and 1 for similar vectors', () => {
-    const a = [1, 0.1, 0];
-    const b = [0.9, 0.2, 0];
-    const dist = cosineDist(a, b);
-    expect(dist).toBeGreaterThanOrEqual(0);
-    expect(dist).toBeLessThanOrEqual(1);
-  });
-
-  it('is symmetric: dist(a,b) === dist(b,a)', () => {
-    const a = [0.5, 0.3, 0.8];
-    const b = [0.2, 0.9, 0.1];
-    expect(cosineDist(a, b)).toBeCloseTo(cosineDist(b, a));
-  });
-});
 
 // ---------------------------------------------------------------------------
 // FaqService
@@ -109,7 +51,7 @@ describe('FaqService', () => {
       findUnique: jest.Mock;
     };
   };
-  let ai: { embed: jest.Mock };
+  let ai: { embed: jest.Mock; chat: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -126,7 +68,7 @@ describe('FaqService', () => {
         findUnique: jest.fn(),
       },
     };
-    ai = { embed: jest.fn() };
+    ai = { embed: jest.fn(), chat: jest.fn().mockResolvedValue('none') };
 
     const module = await Test.createTestingModule({
       providers: [
@@ -204,9 +146,9 @@ describe('FaqService', () => {
     };
 
     it('creates FAQ with questionEmbed when embed succeeds', async () => {
-      const embedding = unitVec(768);
+      const embedding = [1, ...Array(767).fill(0)];
       ai.embed.mockResolvedValue(embedding);
-      const row = makeFaqRow({ questionEmbed: embedBuf(embedding) });
+      const row = makeFaqRow({ questionEmbed: Buffer.from(JSON.stringify(embedding)) });
       prisma.faqOverride.create.mockResolvedValue(row);
 
       const result = await service.create(dto);
@@ -256,10 +198,9 @@ describe('FaqService', () => {
 
   describe('update()', () => {
     it('re-embeds question when question changes', async () => {
-      const oldEmbed = embedBuf(unitVec());
-      const existing = makeFaqRow({ questionEmbed: oldEmbed });
+      const existing = makeFaqRow({ questionEmbed: Buffer.from('[]') });
       prisma.faqOverride.findUnique.mockResolvedValue(existing);
-      ai.embed.mockResolvedValue(unitVec(768));
+      ai.embed.mockResolvedValue([1, ...Array(767).fill(0)]);
       const updated = makeFaqRow({ question: 'Câu hỏi mới?' });
       prisma.faqOverride.update.mockResolvedValue(updated);
 
@@ -364,101 +305,77 @@ describe('FaqService', () => {
   // -------------------------------------------------------------------------
 
   describe('lookup()', () => {
-    it('returns null when embed produces empty vector', async () => {
-      ai.embed.mockResolvedValue([]);
+    // Helpers
+    function makeFaqs(n = 1) {
+      return Array.from({ length: n }, (_, i) => ({
+        id: `faq-${i}`,
+        question: `Câu hỏi ${i}?`,
+        answer: `Câu trả lời ${i}`,
+        priority: 0,
+      }));
+    }
 
-      const result = await service.lookup('câu hỏi', 'kb-1');
-
-      expect(result).toBeNull();
-      expect(prisma.faqOverride.findMany).not.toHaveBeenCalled();
-    });
-
-    it('returns null when no active FAQs with embeddings exist', async () => {
-      ai.embed.mockResolvedValue(unitVec());
+    it('returns null when no active FAQs exist', async () => {
       prisma.faqOverride.findMany.mockResolvedValue([]);
 
       const result = await service.lookup('câu hỏi', 'kb-1');
 
       expect(result).toBeNull();
+      expect(ai.chat).not.toHaveBeenCalled();
     });
 
-    it('returns matching FAQ when cosine distance ≤ 0.15 (identical vector)', async () => {
-      const vec = unitVec();
-      ai.embed.mockResolvedValue(vec);
-      prisma.faqOverride.findMany.mockResolvedValue([
-        { id: 'faq-1', answer: 'Câu trả lời', priority: 0, questionEmbed: embedBuf(vec) },
-      ]);
-      prisma.faqOverride.update.mockResolvedValue({}); // matchCount increment
-
-      const result = await service.lookup('câu hỏi', 'kb-1');
-
-      expect(result).not.toBeNull();
-      expect(result!.id).toBe('faq-1');
-      expect(result!.answer).toBe('Câu trả lời');
-    });
-
-    it('returns null when cosine distance > 0.15 (orthogonal vector)', async () => {
-      ai.embed.mockResolvedValue(unitVec()); // [1,0,0]
-      prisma.faqOverride.findMany.mockResolvedValue([
-        { id: 'faq-1', answer: 'x', priority: 0, questionEmbed: embedBuf(orthogVec()) }, // [0,1,0]
-      ]);
-      // cosineDist([1,0,0], [0,1,0]) = 1.0 > 0.15
+    it('returns null when LLM responds with "none"', async () => {
+      prisma.faqOverride.findMany.mockResolvedValue(makeFaqs(2));
+      ai.chat.mockResolvedValue('none');
 
       const result = await service.lookup('câu hỏi', 'kb-1');
 
       expect(result).toBeNull();
     });
 
-    it('picks the FAQ with smaller cosine distance when multiple match', async () => {
-      const queryVec = unitVec(3); // [1,0,0]
-      // faq-close: same direction → distance 0
-      const closeVec = [1, 0, 0];
-      // faq-far: slightly off → distance ≈ 0.1
-      const farVec = [0.95, 0.31, 0]; // roughly 0.1 away
-
-      ai.embed.mockResolvedValue(queryVec);
-      prisma.faqOverride.findMany.mockResolvedValue([
-        { id: 'faq-far',   answer: 'Far answer',   priority: 0, questionEmbed: embedBuf(farVec) },
-        { id: 'faq-close', answer: 'Close answer', priority: 0, questionEmbed: embedBuf(closeVec) },
-      ]);
+    it('returns matched FAQ when LLM returns valid index "0"', async () => {
+      const faqs = makeFaqs(3);
+      prisma.faqOverride.findMany.mockResolvedValue(faqs);
+      ai.chat.mockResolvedValue('0');
       prisma.faqOverride.update.mockResolvedValue({});
 
       const result = await service.lookup('câu hỏi', 'kb-1');
 
-      expect(result!.id).toBe('faq-close'); // distance 0 < distance ≈ 0.1
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe('faq-0');
+      expect(result!.answer).toBe('Câu trả lời 0');
     });
 
-    it('breaks tie by priority when two FAQs have equal distance', async () => {
-      const vec = unitVec(3);
-      ai.embed.mockResolvedValue(vec);
-      prisma.faqOverride.findMany.mockResolvedValue([
-        { id: 'faq-low',  answer: 'Low priority',  priority: 0, questionEmbed: embedBuf(vec) },
-        { id: 'faq-high', answer: 'High priority', priority: 5, questionEmbed: embedBuf(vec) },
-      ]);
+    it('returns second FAQ when LLM returns index "1"', async () => {
+      const faqs = makeFaqs(3);
+      prisma.faqOverride.findMany.mockResolvedValue(faqs);
+      ai.chat.mockResolvedValue('1');
       prisma.faqOverride.update.mockResolvedValue({});
 
       const result = await service.lookup('câu hỏi', 'kb-1');
 
-      expect(result!.id).toBe('faq-high'); // same distance → higher priority wins
+      expect(result!.id).toBe('faq-1');
     });
 
-    it('skips FAQs without questionEmbed (query filters them server-side)', async () => {
-      // The Prisma where clause filters questionEmbed: {not: null}
-      // so findMany never returns null-embed FAQs — we verify the where clause
-      ai.embed.mockResolvedValue(unitVec());
-      prisma.faqOverride.findMany.mockResolvedValue([]); // DB already filtered them out
+    it('returns null when LLM returns out-of-range index', async () => {
+      prisma.faqOverride.findMany.mockResolvedValue(makeFaqs(2));
+      ai.chat.mockResolvedValue('99'); // index 99 doesn't exist
 
-      await service.lookup('câu hỏi', 'kb-1');
+      const result = await service.lookup('câu hỏi', 'kb-1');
 
-      expect(prisma.faqOverride.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ questionEmbed: { not: null } }),
-        })
-      );
+      expect(result).toBeNull();
+    });
+
+    it('returns null when LLM call throws', async () => {
+      prisma.faqOverride.findMany.mockResolvedValue(makeFaqs(2));
+      ai.chat.mockRejectedValue(new Error('LLM timeout'));
+
+      const result = await service.lookup('câu hỏi', 'kb-1');
+
+      expect(result).toBeNull();
     });
 
     it('only queries active FAQs (isActive: true)', async () => {
-      ai.embed.mockResolvedValue(unitVec());
       prisma.faqOverride.findMany.mockResolvedValue([]);
 
       await service.lookup('câu hỏi', 'kb-1');
@@ -470,25 +387,55 @@ describe('FaqService', () => {
       );
     });
 
+    it('passes knowledgeBaseId to findMany query', async () => {
+      prisma.faqOverride.findMany.mockResolvedValue([]);
+
+      await service.lookup('câu hỏi', 'kb-99');
+
+      expect(prisma.faqOverride.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ knowledgeBaseId: 'kb-99' }),
+        })
+      );
+    });
+
     it('increments matchCount after successful match (async, non-blocking)', async () => {
-      const vec = unitVec();
-      ai.embed.mockResolvedValue(vec);
-      prisma.faqOverride.findMany.mockResolvedValue([
-        { id: 'faq-1', answer: 'Câu trả lời', priority: 0, questionEmbed: embedBuf(vec) },
-      ]);
+      prisma.faqOverride.findMany.mockResolvedValue(makeFaqs(1));
+      ai.chat.mockResolvedValue('0');
+      prisma.faqOverride.update.mockResolvedValue({});
+
+      await service.lookup('câu hỏi', 'kb-1');
+      await Promise.resolve(); // flush async update
+
+      expect(prisma.faqOverride.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'faq-0' },
+          data: { matchCount: { increment: 1 } },
+        })
+      );
+    });
+
+    it('calls LLM with temperature=0 and maxTokens=10', async () => {
+      prisma.faqOverride.findMany.mockResolvedValue(makeFaqs(2));
+      ai.chat.mockResolvedValue('0');
       prisma.faqOverride.update.mockResolvedValue({});
 
       await service.lookup('câu hỏi', 'kb-1');
 
-      // Give async update a tick to fire
-      await Promise.resolve();
-
-      expect(prisma.faqOverride.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'faq-1' },
-          data: { matchCount: { increment: 1 } },
-        })
+      expect(ai.chat).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ temperature: 0, maxTokens: 10 }),
       );
+    });
+
+    it('skips LLM call when only 1 FAQ and falls through to match by index 0 if LLM matches', async () => {
+      prisma.faqOverride.findMany.mockResolvedValue(makeFaqs(1));
+      ai.chat.mockResolvedValue('0');
+      prisma.faqOverride.update.mockResolvedValue({});
+
+      const result = await service.lookup('single FAQ question', 'kb-1');
+
+      expect(result!.id).toBe('faq-0');
     });
   });
 
@@ -505,7 +452,7 @@ describe('FaqService', () => {
 
     beforeEach(() => {
       prisma.knowledgeBase.findUnique.mockResolvedValue({ id: KB_ID, name: 'Test KB' });
-      ai.embed.mockResolvedValue(unitVec(768));
+      ai.embed.mockResolvedValue([1, ...Array(767).fill(0)]);
       prisma.faqOverride.create.mockImplementation(({ data }: { data: { question: string; answer: string; knowledgeBaseId: string; priority: number; questionEmbed: Buffer | null } }) =>
         Promise.resolve(makeFaqRow({ question: data.question, answer: data.answer }))
       );

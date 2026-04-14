@@ -12,13 +12,19 @@ export interface TextBlock {
 
 // Ordered from most-specific to least-specific to avoid false matches
 const HEADING_PATTERNS: Array<{ level: number; regex: RegExp }> = [
-  // Level 4: "1.1.1." or "1.2.3."
+  // Markdown H3: "### Heading"
+  { level: 3, regex: /^###\s+\S.*$/ },
+  // Markdown H2: "## Heading"
+  { level: 2, regex: /^##\s+\S.*$/ },
+  // Markdown H1: "# Heading"
+  { level: 1, regex: /^#\s+\S.*$/ },
+  // Numbered level 4: "1.1.1." or "1.2.3."
   { level: 4, regex: /^(\d{1,2}\.\d{1,2}\.\d{1,2}\.?\s+\S.*)$/ },
-  // Level 3: "1.1." or "2.3."
+  // Numbered level 3: "1.1." or "2.3."
   { level: 3, regex: /^(\d{1,2}\.\d{1,2}\.?\s+\S.*)$/ },
-  // Level 2: "1." or "12." followed by uppercase/content
+  // Numbered level 2: "1." or "12." followed by uppercase/content
   { level: 2, regex: /^(\d{1,2}\.\s+[^\d].*)$/ },
-  // Level 1: Roman numerals "I." "II." "III." "IV." etc.
+  // Roman numerals "I." "II." "III." "IV." etc.
   {
     level: 1,
     regex: /^((?:XIV|XIII|XII|XI|IX|VIII|VII|VI|IV|III|II|I|X|V)\.[ \t]+\S.*)$/,
@@ -30,6 +36,11 @@ function detectLevel(line: string): number {
     if (regex.test(line.trim())) return level;
   }
   return 0;
+}
+
+/** Strip markdown "# " / "## " / "### " prefix from a heading line */
+function cleanHeading(line: string): string {
+  return line.trim().replace(/^#{1,3}\s+/, '');
 }
 
 export function structuralSplit(text: string): TextBlock[] {
@@ -76,7 +87,7 @@ export function structuralSplit(text: string): TextBlock[] {
         // Same or deeper level — already popped above, nothing to push
       }
 
-      currentHeading = trimmed;
+      currentHeading = cleanHeading(trimmed);
       currentLevel = detectedLevel;
     } else {
       contentLines.push(line);

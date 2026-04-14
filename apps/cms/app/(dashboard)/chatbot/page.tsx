@@ -20,9 +20,11 @@ export default async function ChatbotPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900">Cấu hình Chatbot</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">
+          Cấu hình Chatbot
+        </h1>
         <p className="text-sm text-gray-500 mt-1">
           Tùy chỉnh system prompt, nhiệt độ và giới hạn token
         </p>

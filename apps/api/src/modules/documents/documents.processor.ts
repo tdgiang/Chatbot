@@ -40,6 +40,35 @@ function chunkTextRaw(text: string, chunkSize = 2000, overlap = 200): string[] {
   return chunks;
 }
 
+/**
+ * Converts mammoth HTML output to structured plain text.
+ * h1/h2/h3 tags become "# ", "## ", "### " prefixed lines so that
+ * structuralSplit can detect them as heading boundaries.
+ */
+function htmlToStructuredText(html: string): string {
+  return html
+    // Headings → markdown prefix (with surrounding blank lines)
+    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, (_m, c) => `\n# ${stripTags(c).trim()}\n`)
+    .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, (_m, c) => `\n## ${stripTags(c).trim()}\n`)
+    .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, (_m, c) => `\n### ${stripTags(c).trim()}\n`)
+    // List items
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m, c) => `• ${stripTags(c).trim()}\n`)
+    // Block elements → newline
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Strip remaining tags
+    .replace(/<[^>]+>/g, '')
+    // Decode HTML entities
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    // Collapse 3+ blank lines to 2
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ');
+}
+
 async function parseFile(filePath: string, mimeType: string): Promise<string> {
   if (mimeType === 'text/plain') {
     return fs.readFile(filePath, 'utf-8');
@@ -53,8 +82,8 @@ async function parseFile(filePath: string, mimeType: string): Promise<string> {
   }
   if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
     const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ path: filePath });
-    return result.value;
+    const { value: html } = await mammoth.convertToHtml({ path: filePath });
+    return htmlToStructuredText(html);
   }
   throw new Error(`Unsupported MIME type: ${mimeType}`);
 }
@@ -101,37 +130,32 @@ export class DocumentsProcessor extends WorkerHost {
         const { content, sourceSection, chunkType } = chunksToInsert[i];
         // nomic-embed-text requires "search_document:" prefix for document chunks
         const embedding = await this.ai.embed(`search_document: ${content}`);
-        const vectorLiteral = embedding.length > 0 ? `[${embedding.join(',')}]` : null;
 
-        if (vectorLiteral) {
-          await this.prisma.$executeRaw`
-            INSERT INTO chunks (
-              id, "documentId", content, "chunkIndex", embedding,
-              "sourceSection", "chunkType", "isEnabled", "createdAt", "updatedAt"
-            ) VALUES (
-              gen_random_uuid()::text,
-              ${documentId},
-              ${content},
-              ${i},
-              ${vectorLiteral}::vector,
-              ${sourceSection},
-              ${chunkType},
-              true,
-              NOW(),
-              NOW()
-            )
-          `;
-        } else {
-          await this.prisma.chunk.create({
-            data: {
-              documentId,
-              content,
-              chunkIndex: i,
-              sourceSection: sourceSection ?? undefined,
-              chunkType,
-            },
-          });
+        if (embedding.length === 0) {
+          throw new Error(
+            `Embedding failed for chunk ${i} — Ollama không phản hồi hoặc model chưa được pull. ` +
+            `Chạy: ollama pull nomic-embed-text`,
+          );
         }
+
+        const vectorLiteral = `[${embedding.join(',')}]`;
+        await this.prisma.$executeRaw`
+          INSERT INTO chunks (
+            id, "documentId", content, "chunkIndex", embedding,
+            "sourceSection", "chunkType", "isEnabled", "createdAt", "updatedAt"
+          ) VALUES (
+            gen_random_uuid()::text,
+            ${documentId},
+            ${content},
+            ${i},
+            ${vectorLiteral}::vector,
+            ${sourceSection},
+            ${chunkType},
+            true,
+            NOW(),
+            NOW()
+          )
+        `;
         inserted++;
       }
 

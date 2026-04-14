@@ -13,6 +13,7 @@ import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { FaqModule } from './modules/faq/faq.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
     AnalyticsModule,
     FaqModule,
     FeedbackModule,
+    IntegrationsModule,
   ],
 })
 export class AppModule {}
